@@ -1,0 +1,22 @@
+{
+  "name": "edgeone-challenge",
+  "version": "1.0.0",
+  "description": "A single-file Node.js walkthrough of an EdgeOne challenge flow with a real widget session.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "check": "node --check index.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "edgeone",
+    "captcha",
+    "tdc",
+    "cdp",
+    "security-research"
+  ],
+  "author": "Xiao Jiu",
+  "type": "commonjs"
+}
