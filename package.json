@@ -1,7 +1,7 @@
 {
   "name": "edgeone-challenge",
   "version": "1.0.0",
-  "description": "A single-file Node.js walkthrough of an EdgeOne challenge flow with a real widget session.",
+  "description": "使用 Node.js 和真实验证码组件分析腾讯 EdgeOne 行为验证流程。",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",

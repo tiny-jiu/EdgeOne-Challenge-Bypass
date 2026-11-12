@@ -1,41 +1,31 @@
-# EdgeOne Challenge Analysis
+腾讯 EdgeOne 行为验证绕过项目分析的页面上看似只有一个验证码，实际却包含两套相互衔接的验证。页面先执行 JavaScript 验证，随后加载拥有独立会话和验证流程的验证码组件。沿着页面进入组件的过程分别分析，比把两者混为一谈更容易理清状态与请求的对应关系。
 
-What looks like a single CAPTCHA is actually two separate systems. The page first runs a JavaScript challenge, then loads a widget with its own session and verification flow. Treating them as one problem makes the whole thing harder to understand.
+初始页面会写入 `__tst_status` 和 `EO_Bot_Ssid` Cookie。虽然脚本经过混淆，但计算这两个值所需的数据可以直接从响应中提取，不必执行整段脚本。
 
-## 1. The first challenge
+没有必要逐行读完混淆代码，只需关注生成这两个 Cookie 的表达式。算出结果并随请求发回后，页面就会进入真正的验证码组件。
 
-The initial page writes `__tst_status` and `EO_Bot_Ssid` cookies. Although the script is obfuscated, the values needed for the calculation can be extracted from the response without executing it.
+进入组件后，调用 `cap_union_prehandle` 会获得新的 `sess`、配置信息以及可选的 PoW 参数，请求中还带有后续要用的 `deviceID`。
 
-There is no reason to read every line of the obfuscated code. Only the expressions producing those two cookies matter. Once the values are recovered and sent back, the page moves on to the real widget.
+这些值只属于当前这一次验证。从旧抓包中复制过来，会破坏它们与会话之间的对应关系。
 
-## 2. The widget has its own state
+浏览器这边还有一个问题：验证码 iframe 可能是独立的 CDP 目标，顶层页面不一定能访问当前 `sess` 对应的 TDC 实例。只有连接到正确的目标，才能继续后面的分析。
 
-The widget calls `cap_union_prehandle` and receives a fresh `sess`, together with its configuration and optional PoW parameters. Its request also carries the `deviceID` needed later.
+TDC 是流程中较复杂的部分。它收集浏览器和交互数据，然后生成作为 `collect` 和 `eks` 提交的值。
 
-These values belong to one particular exchange. Copying them from an older capture breaks that relationship.
+如果完全重写 TDC，就要处理虚拟化代码、浏览器探测、内部状态和输出编码。更简单的办法是保留原来的采集器，只分析它接受的数据。
 
-The browser adds another complication. The CAPTCHA iframe may run as a separate CDP target, so the top-level page does not necessarily expose the TDC instance belonging to the current `sess`. Attaching to the correct target is what makes the next step possible.
-
-## 3. TDC without reversing the VM
-
-TDC is the most intimidating part of the flow. It collects browser and interaction data, then returns the values used as `collect` and `eks`.
-
-Reimplementing it would mean dealing with virtualized code, browser probes, internal state, and output encoding. A more useful approach is to leave the collector alone and examine the state it accepts.
-
-The widget exposes `setData`, `getData`, and `getInfo`. Through `setData`, it accepts entry state and pointer information such as `slideValue`, layout positions, and client size. Pointer records use a compact structure:
+组件提供 `setData`、`getData` 和 `getInfo`。通过 `setData`，可以传入进入页面时的状态以及指针信息，例如 `slideValue`、布局位置和客户端尺寸。指针记录采用下面的紧凑结构：
 
 ```text
 [type, dx, dy, dt, isFake]
 ```
 
-That changes the problem. Instead of forging TDC output, the genuine collector can process programmatically supplied movement and timing data. `getData(true)` then returns `collect`, while `getInfo()` supplies `eks`.
+这样一来，就不必伪造 TDC 输出，而是让真实采集器处理程序提供的移动和时间数据。随后，`getData(true)` 返回 `collect`，`getInfo()` 提供 `eks`。
 
-The breakthrough is the use of the real component, not a new encoder.
+这里的关键是调用真实组件，而不是另外实现一套编码器。
 
-## 4. PoW and the final ticket
+启用 PoW 时，服务器会提供前缀和 MD5 目标值。代码需要寻找满足 `MD5(prefix + nonce)` 的 nonce。它只增加计算量，并不能证明交互一定来自真实用户。
 
-When PoW is enabled, the server provides a prefix and an MD5 target. The task is simply to find a nonce that satisfies `MD5(prefix + nonce)`. It adds computational work but says nothing about whether the interaction was genuine.
+最终验证请求会组合当前 `sess`、`deviceID`、TDC 输出、答案结构和 PoW 结果。响应中的 `errorCode=0` 表示验证成功，返回的 ticket 随后用作 `EO-Bot-Captcha-Token` Cookie。
 
-The final verification combines the active `sess`, `deviceID`, TDC output, the answer structure, and the PoW result. A response with `errorCode=0` returns a ticket, which is used as the `EO-Bot-Captcha-Token` cookie.
-
-HTTP 200 alone is not a useful success signal because a challenge page can also return 200. The meaningful result is a valid ticket followed by a page that no longer presents the challenge.
+不能只用 HTTP 200 判断是否成功，因为验证页面也可能返回 200。有效结果应当是取得 ticket，并且再次访问时不再出现验证页面。

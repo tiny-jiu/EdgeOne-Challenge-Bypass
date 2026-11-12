@@ -7,7 +7,7 @@ const { spawn } = require('child_process');
 const EO = 'https://gcaptcha.eo.qcloud.com';
 const SITE = process.argv[2];
 if (!SITE) {
-  console.error('Usage: node index.js <target-url>');
+  console.error('用法：node index.js <完整目标URL>');
   process.exit(1);
 }
 let targetUrl;
@@ -15,7 +15,7 @@ try {
   targetUrl = new URL(SITE);
   if (!['http:', 'https:'].includes(targetUrl.protocol)) throw new Error();
 } catch {
-  console.error('The target must be a complete HTTP or HTTPS URL.');
+  console.error('目标地址必须是完整的 HTTP 或 HTTPS URL。');
   process.exit(1);
 }
 const SITE_HOSTNAME = targetUrl.hostname;
@@ -30,7 +30,7 @@ const browserCandidates = [
 ].filter(Boolean);
 const CHROME = browserCandidates.find(candidate => fs.existsSync(candidate));
 if (!CHROME) {
-  throw new Error('Chrome or Edge was not found. Set CHROME_PATH to a Chromium-based browser.');
+  throw new Error('未找到 Chrome 或 Edge。请通过 CHROME_PATH 指定 Chromium 内核浏览器的路径。');
 }
 
 const log = (...args) => console.log(...args);
@@ -42,12 +42,12 @@ async function solveLayer1() {
     if (body.includes('__tst_status') && body.includes('EO_Bot_Ssid')) {
       const match = body.match(/WTKkN:(\d+),bOYDu:(\d+).*?wyeCN:(\d+)/);
       const sessionMatch = body.match(/\(t,(\d{6,})\)/);
-      if (!match || !sessionMatch) throw new Error('Could not parse the layer-one challenge.');
+      if (!match || !sessionMatch) throw new Error('无法解析第一层验证内容。');
       const a = BigInt(match[1]);
       const b = BigInt(match[2]);
       const c = BigInt(match[3]);
       const cookies = { __tst_status: String(a + b + c) + '#', EO_Bot_Ssid: sessionMatch[1] };
-      log(`[Layer 1] Solving challenge round ${round + 1}.`);
+      log(`[第一层] 正在计算第 ${round + 1} 轮验证。`);
       await new Promise(resolve => setTimeout(resolve, 1000));
       const cookieHeader = Object.entries(cookies).map(([key, value]) => `${key}=${value}`).join('; ');
       const retry = await fetch(SITE, {
@@ -55,13 +55,13 @@ async function solveLayer1() {
       });
       const retryBody = await retry.text();
       if (retryBody.includes('__tst_status') && retryBody.includes('EO_Bot_Ssid')) continue;
-      log('[Layer 1] Passed. The verification page is available.');
+      log('[第一层] 验证通过，验证码页面已可访问。');
       return { cookies, pageHtml: retryBody };
     }
-    log('[Layer 1] No calculation is needed for this response.');
+    log('[第一层] 当前响应无需计算。');
     return { cookies: {}, pageHtml: body };
   }
-  throw new Error('The layer-one challenge did not pass after five rounds.');
+  throw new Error('第一层验证在五轮后仍未通过。');
 }
 
 class CDP {
@@ -116,8 +116,8 @@ async function waitForDevTools(process) {
       if (match) resolve(match[1]);
     });
     process.on('error', reject);
-    process.on('exit', () => reject(new Error('The browser exited before CDP was ready.')));
-    setTimeout(() => reject(new Error('Timed out while waiting for DevTools.')), 15000);
+    process.on('exit', () => reject(new Error('浏览器在 CDP 就绪前退出。')));
+    setTimeout(() => reject(new Error('等待 DevTools 就绪超时。')), 15000);
   });
 }
 
@@ -168,7 +168,7 @@ function generateTrack() {
 (async () => {
   const { cookies } = await solveLayer1();
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'eo_chrome_'));
-  log(`[Widget] Starting ${path.basename(CHROME)} in headless mode.`);
+  log(`[验证码组件] 正在以无头模式启动 ${path.basename(CHROME)}。`);
   const browser = spawn(CHROME, [
     '--headless=new', '--remote-debugging-port=0', '--disable-blink-features=AutomationControlled',
     `--user-data-dir=${profile}`, '--window-size=1366,960', 'about:blank',
@@ -216,7 +216,7 @@ function generateTrack() {
     });
 
     await cdp.send('Page.navigate', { url: SITE }, sessionId);
-    log('[Widget] Waiting for the widget session and iframe target.');
+    log('[验证码组件] 正在等待组件会话和 iframe 目标。');
     const started = Date.now();
     let captchaSession = null;
     while (Date.now() - started < 25000) {
@@ -232,10 +232,10 @@ function generateTrack() {
       }
       await new Promise(resolve => setTimeout(resolve, 500));
     }
-    if (!sessionInfo) throw new Error('The widget session was not captured.');
-    if (!sessionInfo.deviceId) throw new Error('The widget did not provide deviceID in its prehandle request.');
-    if (!captchaSession) throw new Error('The captcha iframe target was not found.');
-    log(`[Widget] Session ready: ${sessionInfo.sess.slice(0, 30)}... deviceID=${sessionInfo.deviceId}`);
+    if (!sessionInfo) throw new Error('未捕获到验证码组件会话。');
+    if (!sessionInfo.deviceId) throw new Error('验证码组件的 prehandle 请求中未提供 deviceID。');
+    if (!captchaSession) throw new Error('未找到验证码 iframe 目标。');
+    log(`[验证码组件] 会话已就绪：${sessionInfo.sess.slice(0, 30)}... deviceID=${sessionInfo.deviceId}`);
 
     let tdcReady = false;
     for (let i = 0; i < 30; i++) {
@@ -248,8 +248,8 @@ function generateTrack() {
       }
       await new Promise(resolve => setTimeout(resolve, 500));
     }
-    if (!tdcReady) throw new Error('TDC did not become ready.');
-    log('[TDC] The widget TDC instance is ready.');
+    if (!tdcReady) throw new Error('TDC 未在限定时间内就绪。');
+    log('[TDC] 验证码组件的 TDC 实例已就绪。');
 
     const track = generateTrack();
     await cdp.send('Runtime.evaluate', {
@@ -258,7 +258,7 @@ function generateTrack() {
         window.TDC.setData({slideValue: ${JSON.stringify(track)}, verifyBtnPos: [0,0,0,0], opAreaPos: [24,44,244,86], clientSize: [1366,900]});
       `,
     }, captchaSession);
-    log(`[TDC] Supplied ${track.length} pointer samples.`);
+    log(`[TDC] 已提供 ${track.length} 个指针采样点。`);
     await new Promise(resolve => setTimeout(resolve, 500));
 
     const collect = (await cdp.send('Runtime.evaluate', {
@@ -268,8 +268,8 @@ function generateTrack() {
       expression: 'window.TDC.getInfo()', returnByValue: true,
     }, captchaSession)).result.value;
     const eks = info?.info || '';
-    if (!collect || collect.startsWith('Err')) throw new Error(`Invalid TDC data: ${String(collect).slice(0, 60)}`);
-    log(`[TDC] collect: ${collect.length} characters; eks: ${eks.length} characters.`);
+    if (!collect || collect.startsWith('Err')) throw new Error(`TDC 数据无效：${String(collect).slice(0, 60)}`);
+    log(`[TDC] collect 长度：${collect.length} 个字符；eks 长度：${eks.length} 个字符。`);
 
     const fields = {
       collect,
@@ -285,11 +285,11 @@ function generateTrack() {
       let nonce = 0;
       while (crypto.createHash('md5').update(config.prefix + nonce).digest('hex') !== config.md5) {
         nonce++;
-        if (nonce > 5e6) throw new Error('PoW solving timed out.');
+        if (nonce > 5e6) throw new Error('PoW 求解超时。');
       }
       fields.pow_answer = config.prefix + nonce;
       fields.pow_calc_time = String(Math.max(1, Date.now() - startedAt));
-      log(`[PoW] Solved with nonce ${nonce}.`);
+      log(`[PoW] 求解完成，nonce=${nonce}。`);
     }
 
     const requestBody = Object.entries(fields)
@@ -301,13 +301,13 @@ function generateTrack() {
       body: requestBody,
     });
     const result = JSON.parse(await verification.text());
-    log(`[Verify] errorCode=${result.errorCode}`);
+    log(`[验证] errorCode=${result.errorCode}`);
     if (result.errorCode !== '0') {
-      log(`[Failed] ${JSON.stringify(result).slice(0, 200)}`);
+      log(`[失败] ${JSON.stringify(result).slice(0, 200)}`);
       process.exitCode = 1;
       return;
     }
-    log(`[Passed] ticket=${result.ticket.slice(0, 50)}... randstr=${result.randstr}`);
+    log(`[通过] ticket=${result.ticket.slice(0, 50)}... randstr=${result.randstr}`);
     fs.appendFileSync(path.join(__dirname, 'eo_tickets.txt'), `${result.ticket}\n`);
 
     await cdp.send('Network.setCookie', {
@@ -322,7 +322,7 @@ function generateTrack() {
     const browserPassed = !browserHtml.includes('__tst_status')
       && !browserHtml.includes('TEOCaptchaWidget')
       && !browserHtml.includes('Security Verification');
-    log(`[Browser check] ${browserPassed ? 'Passed; no challenge page was returned.' : 'The challenge page is still present.'}`);
+    log(`[浏览器检查] ${browserPassed ? '通过，未再返回验证页面。' : '仍显示验证页面。'}`);
 
     const cookieParts = Object.entries(cookies).map(([key, value]) => `${key}=${value}`);
     cookieParts.push(`EO-Bot-Captcha-Token=${result.ticket}`);
@@ -340,6 +340,6 @@ function generateTrack() {
     try { fs.rmSync(profile, { recursive: true, force: true }); } catch (_) {}
   }
 })().catch(error => {
-  console.error(`[Error] ${error.message}`);
+  console.error(`[错误] ${error.message}`);
   process.exit(1);
 });
